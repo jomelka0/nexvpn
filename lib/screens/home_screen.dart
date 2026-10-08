@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_v2ray/flutter_v2ray.dart';
 import '../models/server_node.dart';
+import '../models/subscription.dart';
 import '../services/storage_service.dart';
 import '../services/ping_service.dart';
 import '../services/subscription_service.dart';
@@ -19,6 +21,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   List<ServerNode> servers = [];
+  List<Object> items = []; // Subscription | String (заголовок) | ServerNode
   ServerNode? selected;
   bool pinging = false;
   bool busy = false;
@@ -31,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _pulse = AnimationController(vsync: this, duration: const Duration(seconds: 2))
       ..repeat(reverse: true);
     _loadData();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _autoUpdate());
   }
 
   @override
@@ -41,9 +45,25 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   void _loadData() {
     servers = StorageService.getServers();
+    final subs = StorageService.getSubscriptions();
     final id = StorageService.getSelectedId();
     selected = servers.where((s) => s.id == id).firstOrNull ?? servers.firstOrNull;
-    setState(() {});
+
+    final list = <Object>[];
+    final used = <String>{};
+    for (final sub in subs) {
+      final group = servers.where((s) => s.source == sub.url).toList();
+      list.add(sub);
+      list.addAll(group);
+      used.addAll(group.map((s) => s.id));
+    }
+    final manual = servers.where((s) => !used.contains(s.id)).toList();
+    if (manual.isNotEmpty) {
+      if (subs.isNotEmpty) list.add('Добавлены вручную');
+      list.addAll(manual);
+    }
+    items = list;
+    if (mounted) setState(() {});
   }
 
   void _snack(String text) {
@@ -51,6 +71,57 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  Future<void> _autoUpdate() async {
+    for (final sub in StorageService.getSubscriptions()) {
+      if (sub.needsUpdate) await _updateSubscription(sub, silent: true);
+    }
+  }
+
+  Future<int> _updateSubscription(Subscription sub, {bool silent = false}) async {
+    final res = await SubscriptionService.import(sub.url);
+    if (res.servers.isEmpty) {
+      if (!silent) _snack(res.error ?? 'Не удалось обновить подписку');
+      return 0;
+    }
+    await SubscriptionService.saveResult(res);
+    _loadData();
+    return res.servers.length;
+  }
+
+  Future<void> _refreshAll() async {
+    final subs = StorageService.getSubscriptions();
+    if (subs.isEmpty) {
+      _snack('Нет подписок для обновления');
+      return;
+    }
+    _snack('Обновляю подписки…');
+    var count = 0;
+    for (final sub in subs) {
+      count += await _updateSubscription(sub, silent: true);
+    }
+    _snack('Обновлено серверов: $count');
+  }
+
+  Future<void> _deleteSubscription(Subscription sub) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Удалить подписку?'),
+        content: Text('${sub.name}\nВсе её серверы будут удалены.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Отмена')),
+          TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Удалить')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final all = StorageService.getServers()..removeWhere((s) => s.source == sub.url);
+    await StorageService.saveServers(all);
+    final subs = StorageService.getSubscriptions()..removeWhere((s) => s.url == sub.url);
+    await StorageService.saveSubscriptions(subs);
+    _loadData();
   }
 
   Future<void> _toggle() async {
@@ -63,7 +134,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       } else {
         final server = selected;
         if (server == null) {
-          _snack('Сначала добавьте сервер (кнопка 🔗 сверху)');
+          _snack('Сначала добавьте подписку (кнопка 🔗 сверху)');
           return;
         }
         final err = await vpn.connect(server, StorageService.getSettings());
@@ -82,27 +153,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     });
     await StorageService.saveServers(servers);
     if (mounted) setState(() => pinging = false);
-  }
-
-  Future<void> _refreshSubscriptions() async {
-    final subs = StorageService.getSubscriptions();
-    if (subs.isEmpty) {
-      _snack('Нет подписок для обновления');
-      return;
-    }
-    _snack('Обновляю подписки…');
-    final all = StorageService.getServers();
-    var count = 0;
-    for (final url in subs) {
-      final res = await SubscriptionService.import(url);
-      if (res.servers.isEmpty) continue;
-      all.removeWhere((s) => s.source == url);
-      all.addAll(res.servers);
-      count += res.servers.length;
-    }
-    await StorageService.saveServers(all);
-    _loadData();
-    _snack('Обновлено серверов: $count');
   }
 
   Future<void> _confirmDelete(ServerNode server) async {
@@ -131,12 +181,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         title: const Text('NexVPN', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
-            tooltip: 'Обновить подписки',
+            tooltip: 'Обновить все подписки',
             icon: const Icon(Icons.refresh),
-            onPressed: _refreshSubscriptions,
+            onPressed: _refreshAll,
           ),
           IconButton(
-            tooltip: 'Добавить сервер / подписку',
+            tooltip: 'Добавить подписку',
             icon: const Icon(Icons.add_link),
             onPressed: () async {
               final msg = await showModalBottomSheet<String>(
@@ -196,7 +246,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Widget _connectButton(bool connected, bool connecting) {
     final color = connected ? Colors.green : const Color(0xFF8B949E);
-    final label = connecting ? (connected ? 'ОТКЛЮЧЕНИЕ…' : 'ПОДКЛЮЧЕНИЕ…') : (connected ? 'ПОДКЛЮЧЕНО' : 'ОТКЛЮЧЕНО');
+    final label = connecting
+        ? (connected ? 'ОТКЛЮЧЕНИЕ…' : 'ПОДКЛЮЧЕНИЕ…')
+        : (connected ? 'ПОДКЛЮЧЕНО' : 'ОТКЛЮЧЕНО');
     return GestureDetector(
       onTap: _toggle,
       child: AnimatedBuilder(
@@ -255,13 +307,92 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
+  Widget _subHeader(Subscription sub) {
+    final hasTotal = sub.total > 0;
+    final parts = <String>[];
+    if (hasTotal) {
+      parts.add('${formatBytes(sub.used)} из ${formatBytes(sub.total)}');
+    } else if (sub.used > 0) {
+      parts.add('Использовано ${formatBytes(sub.used)}');
+    }
+    if (sub.expire > 0) {
+      final left = DateTime.fromMillisecondsSinceEpoch(sub.expire * 1000)
+          .difference(DateTime.now())
+          .inDays;
+      parts.add(left < 0 ? 'срок истёк' : 'осталось дней: $left');
+    }
+    if (sub.updatedAt > 0) {
+      parts.add('обновлено ${formatDateTime(DateTime.fromMillisecondsSinceEpoch(sub.updatedAt))}');
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(top: 4, bottom: 10),
+      padding: const EdgeInsets.fromLTRB(14, 6, 4, 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF161B22),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF30363D)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.cloud_outlined, size: 18, color: Color(0xFF58A6FF)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(sub.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, size: 20),
+                onSelected: (v) async {
+                  if (v == 'update') {
+                    final n = await _updateSubscription(sub);
+                    if (n > 0) _snack('Обновлено серверов: $n');
+                  } else if (v == 'copy') {
+                    await Clipboard.setData(ClipboardData(text: sub.url));
+                    _snack('Ссылка скопирована');
+                  } else if (v == 'delete') {
+                    await _deleteSubscription(sub);
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'update', child: Text('Обновить')),
+                  PopupMenuItem(value: 'copy', child: Text('Копировать ссылку')),
+                  PopupMenuItem(value: 'delete', child: Text('Удалить подписку')),
+                ],
+              ),
+            ],
+          ),
+          if (hasTotal)
+            Padding(
+              padding: const EdgeInsets.only(right: 10, bottom: 6),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: (sub.used / sub.total).clamp(0.0, 1.0).toDouble(),
+                  minHeight: 5,
+                ),
+              ),
+            ),
+          if (parts.isNotEmpty)
+            Text(parts.join(' • '),
+                style: const TextStyle(fontSize: 11, color: Color(0xFF8B949E))),
+        ],
+      ),
+    );
+  }
+
   Widget _serverList(bool connected) {
-    if (servers.isEmpty) {
+    if (items.isEmpty) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(32),
           child: Text(
-            'Серверов пока нет.\nНажмите 🔗 сверху и вставьте ссылку подписки (https://…) или vless:// / vmess:// / trojan:// / ss://',
+            'Подписок пока нет.\nНажмите 🔗 сверху и вставьте ссылку подписки (https://…) — все серверы загрузятся сразу.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Color(0xFF8B949E)),
           ),
@@ -270,9 +401,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: servers.length,
+      itemCount: items.length,
       itemBuilder: (context, index) {
-        final server = servers[index];
+        final item = items[index];
+        if (item is Subscription) return _subHeader(item);
+        if (item is String) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 8, bottom: 10),
+            child: Text(item,
+                style: const TextStyle(color: Color(0xFF8B949E), fontWeight: FontWeight.bold)),
+          );
+        }
+        final server = item as ServerNode;
         return ServerCard(
           server: server,
           isSelected: selected?.id == server.id,

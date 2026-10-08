@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/server_node.dart';
 import '../models/app_settings.dart';
+import '../models/subscription.dart';
 
 class StorageService {
   static late SharedPreferences _prefs;
@@ -36,9 +37,17 @@ class StorageService {
     await _prefs.setString('selectedServerId', id);
   }
 
-  static List<String> getSubscriptions() => _prefs.getStringList('subscriptions') ?? [];
+  static List<Subscription> getSubscriptions() {
+    final list = _prefs.getStringList('subs2');
+    if (list != null) {
+      return list.map((s) => Subscription.fromJson(jsonDecode(s))).toList();
+    }
+    // миграция со старого формата (список ссылок)
+    final old = _prefs.getStringList('subscriptions') ?? [];
+    return old.map((u) => Subscription(url: u, name: Uri.tryParse(u)?.host ?? u)).toList();
+  }
 
-  static Future<void> saveSubscriptions(List<String> urls) async {
-    await _prefs.setStringList('subscriptions', urls);
+  static Future<void> saveSubscriptions(List<Subscription> subs) async {
+    await _prefs.setStringList('subs2', subs.map((s) => jsonEncode(s.toJson())).toList());
   }
 }

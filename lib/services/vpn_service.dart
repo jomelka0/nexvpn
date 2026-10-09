@@ -5,6 +5,7 @@ import 'package:flutter_v2ray/flutter_v2ray.dart';
 import 'package:installed_apps/installed_apps.dart';
 import '../models/app_settings.dart';
 import '../models/server_node.dart';
+import 'diag_log.dart';
 
 /// Обёртка над ядром Xray (flutter_v2ray) и Android VpnService.
 class VpnManager {
@@ -18,12 +19,32 @@ class VpnManager {
     '169.254.0.0/16',
   ];
 
+  // Адреса, по которым ядро Xray делает «реальный» запрос через сервер
+  static const _testUrls = [
+    'https://www.gstatic.com/generate_204',
+    'http://cp.cloudflare.com/generate_204',
+  ];
+
+  static const _nonProxy = ['freedom', 'blackhole', 'dns', 'loopback'];
+
   final ValueNotifier<V2RayStatus> status = ValueNotifier(V2RayStatus());
+
   /// История скорости за текущий сеанс (для графика), ~1 значение в секунду.
   final List<int> downHistory = [];
   final List<int> upHistory = [];
 
   late final FlutterV2ray _v2ray = FlutterV2ray(onStatusChanged: _onStatus);
+  bool _initialized = false;
+  String? _connectedId;
+
+  /// Причина последней неудачи пинга (для диагностики).
+  String? lastPingError;
+
+  bool get isConnected => status.value.state == 'CONNECTED';
+  bool get isConnecting => status.value.state == 'CONNECTING';
+
+  /// id сервера, к которому подключены сейчас (null, если VPN выключен).
+  String? get connectedServerId => isConnected ? _connectedId : null;
 
   void _onStatus(V2RayStatus s) {
     if (s.state == 'CONNECTED') {
@@ -38,25 +59,38 @@ class VpnManager {
     }
     status.value = s;
   }
-  bool _initialized = false;
-
-  // Адреса, по которым ядро Xray делает «реальный» запрос через сервер
-  static const _testUrls = [
-    'https://www.gstatic.com/generate_204',
-    'http://cp.cloudflare.com/generate_204',
-  ];
-
-  /// Причина последней неудачи пинга (для диагностики).
-  String? lastPingError;
-  String? _connectedId;
-
-  bool get isConnected => status.value.state == 'CONNECTED';
-  bool get isConnecting => status.value.state == 'CONNECTING';
 
   Future<void> init() async {
     if (_initialized) return;
     await _v2ray.initializeV2Ray();
     _initialized = true;
+  }
+
+  /// Собирает итоговый Xray-конфиг: из ссылки или из готового JSON подписки.
+  Map<String, dynamic> _buildConfig(ServerNode server, AppSettings? settings) {
+    Map<String, dynamic> config;
+    if (server.config.isNotEmpty) {
+      config = Map<String, dynamic>.from(jsonDecode(server.config) as Map);
+      // Плагину нужны его собственные inbounds (socks/http), как в сгенерированном конфиге
+      final inbounds = _templateInbounds();
+      if (inbounds != null) config['inbounds'] = inbounds;
+    } else {
+      config = Map<String, dynamic>.from(
+          jsonDecode(FlutterV2ray.parseFromURL(server.link).getFullConfiguration()) as Map);
+    }
+    if (settings != null && settings.tlsFragmentation) config = _applyFragmentation(config);
+    return config;
+  }
+
+  List<dynamic>? _templateInbounds() {
+    try {
+      final t = FlutterV2ray.parseFromURL(
+          'vless://00000000-0000-0000-0000-000000000000@127.0.0.1:443?type=tcp&security=none#t');
+      final c = jsonDecode(t.getFullConfiguration()) as Map<String, dynamic>;
+      return c['inbounds'] as List?;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Возвращает null при успехе или текст ошибки.
@@ -66,9 +100,7 @@ class VpnManager {
       final granted = await _v2ray.requestPermission();
       if (!granted) return 'Нет разрешения на создание VPN-подключения';
 
-      final parsed = FlutterV2ray.parseFromURL(server.link);
-      var config = jsonDecode(parsed.getFullConfiguration()) as Map<String, dynamic>;
-      if (settings.tlsFragmentation) config = _applyFragmentation(config);
+      final config = _buildConfig(server, settings);
 
       // Per-App Routing: в VPN идут только выбранные приложения,
       // все остальные исключаются (blockedApps = обходят туннель).
@@ -81,6 +113,8 @@ class VpnManager {
             .toList();
       }
 
+      DiagLog.add('Подключение: ${server.name} (${server.protocol} ${server.address}:${server.port}), '
+          'источник=${server.config.isNotEmpty ? 'готовый JSON' : 'ссылка'}');
       await _v2ray.startV2Ray(
         remark: server.name,
         config: jsonEncode(config),
@@ -92,6 +126,7 @@ class VpnManager {
       _connectedId = server.id;
       return null;
     } catch (e) {
+      DiagLog.add('Ошибка подключения: $e');
       return 'Ошибка подключения: $e';
     }
   }
@@ -121,10 +156,11 @@ class VpnManager {
             lastPingError = '$e';
           }
         }
+        DiagLog.add('Пинг ${server.name}: ${lastPingError ?? 'нет ответа'}');
         return -1;
       }
 
-      final config = FlutterV2ray.parseFromURL(server.link).getFullConfiguration();
+      final config = jsonEncode(_buildConfig(server, null));
       for (final url in _testUrls) {
         try {
           final d = await _v2ray
@@ -136,28 +172,33 @@ class VpnManager {
           lastPingError = '$e';
         }
       }
+      DiagLog.add('Пинг ${server.name} (${server.address}:${server.port}): ${lastPingError ?? 'нет ответа'}');
       return -1;
     } catch (e) {
       lastPingError = '$e';
+      DiagLog.add('Пинг ${server.name}: $e');
       return -1;
     }
   }
 
-  /// TLS Fragmentation: исходящее соединение к прокси идёт через freedom-outbound,
+  /// TLS Fragmentation: исходящие соединения к прокси идут через freedom-outbound,
   /// который режет TLS ClientHello на куски (обход DPI).
   Map<String, dynamic> _applyFragmentation(Map<String, dynamic> config) {
     final outs = List<dynamic>.from((config['outbounds'] as List?) ?? const []);
-    final i = outs.indexWhere((o) =>
-        !const ['freedom', 'blackhole', 'dns'].contains((o as Map)['protocol']));
-    if (i < 0) return config;
-
-    final proxy = Map<String, dynamic>.from(outs[i] as Map);
-    final stream = Map<String, dynamic>.from((proxy['streamSettings'] as Map?) ?? {});
-    final sockopt = Map<String, dynamic>.from((stream['sockopt'] as Map?) ?? {});
-    sockopt['dialerProxy'] = 'fragment';
-    stream['sockopt'] = sockopt;
-    proxy['streamSettings'] = stream;
-    outs[i] = proxy;
+    var changed = false;
+    for (var i = 0; i < outs.length; i++) {
+      final o = outs[i];
+      if (o is! Map || o['protocol'] == null || _nonProxy.contains(o['protocol'])) continue;
+      final proxy = Map<String, dynamic>.from(o);
+      final stream = Map<String, dynamic>.from((proxy['streamSettings'] as Map?) ?? {});
+      final sockopt = Map<String, dynamic>.from((stream['sockopt'] as Map?) ?? {});
+      sockopt['dialerProxy'] = 'fragment';
+      stream['sockopt'] = sockopt;
+      proxy['streamSettings'] = stream;
+      outs[i] = proxy;
+      changed = true;
+    }
+    if (!changed) return config;
 
     outs.add({
       'tag': 'fragment',

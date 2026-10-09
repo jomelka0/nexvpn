@@ -5,7 +5,9 @@ import '../services/vpn_service.dart';
 import '../utils/page_routes.dart';
 import '../widgets/fade_in_up.dart';
 import '../widgets/setting_tile.dart';
+import '../widgets/tap_scale.dart';
 import 'app_picker_screen.dart';
+import 'diagnostics_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -48,7 +50,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const Text('Kill Switch'),
         content: const Text(
           'В Android приложение не может само блокировать интернет при обрыве VPN — это делает система.\n\n'
-          'Откройте настройки VPN → значок ⚙ рядом с NexVPN → включите «Всегда включённый VPN» и '
+          'Откройте настройки VPN → значок ⚙ рядом с Nex → включите «Всегда включённый VPN» и '
           '«Блокировать подключения без VPN». Тогда при обрыве туннеля трафик не пойдёт напрямую.',
         ),
         actions: [
@@ -190,6 +192,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onLongPress: () => _showInfoDialog(
                   'Что такое Bypass LAN?',
                   'Позволяет вашему устройству напрямую взаимодействовать с локальными устройствами (принтеры, сетевые диски NAS, умный дом) без перенаправления запросов на удаленный VPN-сервер.',
+                ),
+              ),
+            ),
+            FadeInUp(
+              delayMs: 240,
+              child: TapScale(
+                onTap: () => Navigator.push(context, fadeSlideRoute<void>(const DiagnosticsScreen())),
+                scaleDown: 0.97,
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF161B22),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFF30363D)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: const Color(0xFF21262D),
+                        ),
+                        child: const Icon(Icons.bug_report_rounded, size: 22, color: Color(0xFF8B949E)),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Диагностика',
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                            SizedBox(height: 3),
+                            Text('Журнал ответов подписки, пингов и подключений',
+                                style: TextStyle(fontSize: 12, color: Color(0xFF8B949E))),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right_rounded, color: Color(0xFF8B949E)),
+                    ],
+                  ),
                 ),
               ),
             ),

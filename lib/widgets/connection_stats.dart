@@ -32,8 +32,17 @@ class ConnectionStats extends StatelessWidget {
   final V2RayStatus status;
   final List<int> down;
   final List<int> up;
+  final String serverName;
+  final VoidCallback? onDisconnect;
 
-  const ConnectionStats({super.key, required this.status, required this.down, required this.up});
+  const ConnectionStats({
+    super.key,
+    required this.status,
+    required this.down,
+    required this.up,
+    this.serverName = '',
+    this.onDisconnect,
+  });
 
   static const _green = Color(0xFF3FB950);
   static const _purple = Color(0xFFA371F7);
@@ -64,6 +73,37 @@ class ConnectionStats extends StatelessWidget {
         ),
         child: Column(
           children: [
+            if (serverName.isNotEmpty || onDisconnect != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(shape: BoxShape.circle, color: _green),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(serverName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                    ),
+                    if (onDisconnect != null)
+                      TextButton.icon(
+                        onPressed: onDisconnect,
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFFF85149),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: const Size(0, 30),
+                        ),
+                        icon: const Icon(Icons.power_settings_new_rounded, size: 16),
+                        label: const Text('Отключить', style: TextStyle(fontSize: 12)),
+                      ),
+                  ],
+                ),
+              ),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [

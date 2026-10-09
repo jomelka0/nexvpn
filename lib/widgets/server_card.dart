@@ -2,48 +2,61 @@ import 'package:flutter/material.dart';
 import '../models/server_node.dart';
 import 'tap_scale.dart';
 
+/// Карточка сервера: бейдж протокола, название, адрес, пинг и кнопка питания.
 class ServerCard extends StatelessWidget {
   final ServerNode server;
   final bool isSelected;
+  final bool isConnected;
+  final bool isConnecting;
+  final bool pinging;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
-  final bool pinging;
+  final VoidCallback onPower;
   final VoidCallback? onPingTap;
 
   const ServerCard({
     super.key,
     required this.server,
     required this.isSelected,
+    required this.isConnected,
+    required this.isConnecting,
     required this.onTap,
     required this.onLongPress,
+    required this.onPower,
     this.pinging = false,
     this.onPingTap,
   });
 
-  List<Color> _protocolColors() {
+  static const _green = Color(0xFF3FB950);
+  static const _blue = Color(0xFF58A6FF);
+  static const _muted = Color(0xFF8B949E);
+
+  Color _protocolColor() {
     final p = server.protocol.toUpperCase();
-    if (p.startsWith('VLESS')) return const [Color(0xFF1F6FEB), Color(0xFF58A6FF)];
-    if (p.startsWith('VMESS')) return const [Color(0xFF8957E5), Color(0xFFA371F7)];
-    if (p.startsWith('TROJAN')) return const [Color(0xFFD29922), Color(0xFFF0883E)];
-    return const [Color(0xFF238636), Color(0xFF3FB950)];
+    if (p.startsWith('VLESS')) return _blue;
+    if (p.startsWith('VMESS')) return const Color(0xFFA371F7);
+    if (p.startsWith('TROJAN')) return const Color(0xFFF0883E);
+    if (p.startsWith('SS')) return _green;
+    return _muted;
   }
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFF58A6FF);
     final ping = server.ping;
     String pingText;
     Color pingColor;
     if (ping == null) {
       pingText = '--- ms';
-      pingColor = const Color(0xFF8B949E);
+      pingColor = _muted;
     } else if (ping < 0) {
-      pingText = 'timeout';
-      pingColor = Colors.redAccent;
+      pingText = 'Timeout';
+      pingColor = const Color(0xFFF85149);
     } else {
       pingText = '$ping ms';
-      pingColor = ping < 300 ? const Color(0xFF3FB950) : Colors.orange;
+      pingColor = ping < 300 ? _green : const Color(0xFFF0883E);
     }
+    final proto = _protocolColor();
+    final borderColor = isConnected ? _green : (isSelected ? _blue : const Color(0xFF30363D));
 
     return TapScale(
       onTap: onTap,
@@ -53,31 +66,28 @@ class ServerCard extends StatelessWidget {
         duration: const Duration(milliseconds: 280),
         curve: Curves.easeOutCubic,
         margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
         decoration: BoxDecoration(
-          color: isSelected ? primary.withOpacity(0.10) : const Color(0xFF161B22),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected ? primary : const Color(0xFF30363D),
-            width: isSelected ? 1.6 : 1,
-          ),
+          color: isConnected ? _green.withOpacity(0.07) : const Color(0xFF161B22),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: borderColor, width: (isConnected || isSelected) ? 1.6 : 1),
         ),
         child: Row(
           children: [
             Container(
-              width: 40,
-              height: 40,
+              constraints: const BoxConstraints(minWidth: 52),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: _protocolColors(),
-                ),
+                color: proto.withOpacity(0.14),
+                borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.dns_rounded, size: 22, color: Colors.white),
+              child: Text(
+                server.protocol.toUpperCase(),
+                textAlign: TextAlign.center,
+                style: TextStyle(color: proto, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.4),
+              ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -85,12 +95,12 @@ class ServerCard extends StatelessWidget {
                   Text(server.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
                   const SizedBox(height: 2),
-                  Text('${server.protocol} • ${server.address}:${server.port}',
+                  Text('${server.address}:${server.port}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12, color: Color(0xFF8B949E))),
+                      style: const TextStyle(fontSize: 11.5, color: _muted)),
                 ],
               ),
             ),
@@ -99,11 +109,12 @@ class ServerCard extends StatelessWidget {
               behavior: HitTestBehavior.opaque,
               onTap: onPingTap,
               child: Container(
-                constraints: const BoxConstraints(minWidth: 64),
+                constraints: const BoxConstraints(minWidth: 66),
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: pingColor.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: pingColor.withOpacity(0.7)),
+                  color: pingColor.withOpacity(0.08),
                 ),
                 child: Center(
                   widthFactor: 1,
@@ -111,21 +122,35 @@ class ServerCard extends StatelessWidget {
                       ? SizedBox(
                           width: 14,
                           height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: pingColor),
-                        )
+                          child: CircularProgressIndicator(strokeWidth: 2, color: pingColor))
                       : Text(pingText,
-                          style: TextStyle(
-                              color: pingColor, fontWeight: FontWeight.bold, fontSize: 12)),
+                          style: TextStyle(color: pingColor, fontWeight: FontWeight.w700, fontSize: 12)),
                 ),
               ),
             ),
-            const SizedBox(width: 6),
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 250),
-              transitionBuilder: (c, a) => ScaleTransition(scale: a, child: c),
-              child: isSelected
-                  ? const Icon(Icons.check_circle_rounded, key: ValueKey('on'), color: primary, size: 22)
-                  : const SizedBox(key: ValueKey('off'), width: 22, height: 22),
+            const SizedBox(width: 10),
+            TapScale(
+              onTap: onPower,
+              scaleDown: 0.85,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isConnected ? _green.withOpacity(0.18) : const Color(0xFF21262D),
+                  border: Border.all(color: isConnected ? _green : Colors.transparent, width: 1.5),
+                ),
+                child: Center(
+                  child: isConnecting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2.2, color: _blue))
+                      : Icon(Icons.power_settings_new_rounded,
+                          size: 22, color: isConnected ? _green : _muted),
+                ),
+              ),
             ),
           ],
         ),

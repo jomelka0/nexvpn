@@ -1,0 +1,201 @@
+{
+ "links.txt": {
+  "format": "links",
+  "skipped": 2,
+  "notices": [],
+  "decoy": false,
+  "servers": [
+   {
+    "name": "🇩🇪 Germany 1",
+    "address": "de1.example.com",
+    "port": 443,
+    "protocol": "VLESS",
+    "hasConfig": false
+   },
+   {
+    "name": "Netherlands",
+    "address": "nl2.example.com",
+    "port": 8443,
+    "protocol": "TROJAN",
+    "hasConfig": false
+   },
+   {
+    "name": "US East",
+    "address": "us3.example.com",
+    "port": 443,
+    "protocol": "VMESS",
+    "hasConfig": false
+   },
+   {
+    "name": "SS Tokyo",
+    "address": "ss1.example.com",
+    "port": 8388,
+    "protocol": "SS",
+    "hasConfig": false
+   },
+   {
+    "name": "Legacy SS",
+    "address": "legacy.example.com",
+    "port": 9999,
+    "protocol": "SS",
+    "hasConfig": false
+   },
+   {
+    "name": "IPv6 Node",
+    "address": "2001:db8::1",
+    "port": 443,
+    "protocol": "VLESS",
+    "hasConfig": false
+   }
+  ]
+ },
+ "links_base64.txt": {
+  "format": "base64-links",
+  "skipped": 2,
+  "notices": [],
+  "decoy": false,
+  "servers": [
+   {
+    "name": "🇩🇪 Germany 1",
+    "address": "de1.example.com",
+    "port": 443,
+    "protocol": "VLESS",
+    "hasConfig": false
+   },
+   {
+    "name": "Netherlands",
+    "address": "nl2.example.com",
+    "port": 8443,
+    "protocol": "TROJAN",
+    "hasConfig": false
+   },
+   {
+    "name": "US East",
+    "address": "us3.example.com",
+    "port": 443,
+    "protocol": "VMESS",
+    "hasConfig": false
+   },
+   {
+    "name": "SS Tokyo",
+    "address": "ss1.example.com",
+    "port": 8388,
+    "protocol": "SS",
+    "hasConfig": false
+   },
+   {
+    "name": "Legacy SS",
+    "address": "legacy.example.com",
+    "port": 9999,
+    "protocol": "SS",
+    "hasConfig": false
+   },
+   {
+    "name": "IPv6 Node",
+    "address": "2001:db8::1",
+    "port": 443,
+    "protocol": "VLESS",
+    "hasConfig": false
+   }
+  ]
+ },
+ "stub_hwid.txt": {
+  "format": "links",
+  "skipped": 0,
+  "notices": [
+   "Включите передачу HWID",
+   "в настройках приложения",
+   "Либо смените приложение",
+   "На указанное на сайте"
+  ],
+  "decoy": false,
+  "servers": []
+ },
+ "decoy_ss.txt": {
+  "format": "links",
+  "skipped": 0,
+  "notices": [],
+  "decoy": true,
+  "servers": [
+   {
+    "name": "🌎 Универсальный №1",
+    "address": "max.ru",
+    "port": 1234,
+    "protocol": "SS",
+    "hasConfig": false
+   },
+   {
+    "name": "🌎 Универсальный №2",
+    "address": "max.ru",
+    "port": 1234,
+    "protocol": "SS",
+    "hasConfig": false
+   },
+   {
+    "name": "🌎 Универсальный №3",
+    "address": "max.ru",
+    "port": 1234,
+    "protocol": "SS",
+    "hasConfig": false
+   }
+  ]
+ },
+ "xray_json.json": {
+  "format": "xray-json",
+  "skipped": 1,
+  "notices": [],
+  "decoy": false,
+  "servers": [
+   {
+    "name": "🌎 Универсальный №1",
+    "address": "real1.example.com",
+    "port": 443,
+    "protocol": "VLESS",
+    "hasConfig": true
+   },
+   {
+    "name": "Trojan",
+    "address": "real2.example.com",
+    "port": 8443,
+    "protocol": "TROJAN",
+    "hasConfig": true
+   }
+  ]
+ },
+ "xray_json_base64.txt": {
+  "format": "base64-xray-json",
+  "skipped": 1,
+  "notices": [],
+  "decoy": false,
+  "servers": [
+   {
+    "name": "🌎 Универсальный №1",
+    "address": "real1.example.com",
+    "port": 443,
+    "protocol": "VLESS",
+    "hasConfig": true
+   },
+   {
+    "name": "Trojan",
+    "address": "real2.example.com",
+    "port": 8443,
+    "protocol": "TROJAN",
+    "hasConfig": true
+   }
+  ]
+ },
+ "unknown.html": {
+  "format": "unknown",
+  "skipped": 0,
+  "notices": [],
+  "decoy": false,
+  "servers": []
+ },
+ "empty.txt": {
+  "format": "empty",
+  "skipped": 0,
+  "notices": [],
+  "decoy": false,
+  "servers": []
+ }
+}

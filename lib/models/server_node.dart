@@ -4,7 +4,8 @@ class ServerNode {
   final String address;
   final int port;
   final String protocol;
-  final String link;   // полная ссылка vless:// vmess:// trojan:// ss://
+  final String link;   // полная ссылка vless:// vmess:// trojan:// ss:// (пусто, если есть config)
+  final String config; // готовый Xray JSON из подписки (пусто, если есть link)
   final String source; // URL подписки, из которой пришёл сервер ('' = добавлен вручную)
   int? ping;           // null = не проверялся, -1 = недоступен
 
@@ -14,7 +15,8 @@ class ServerNode {
     required this.address,
     required this.port,
     required this.protocol,
-    required this.link,
+    this.link = '',
+    this.config = '',
     this.source = '',
     this.ping,
   });
@@ -27,6 +29,7 @@ class ServerNode {
       port: json['port'] ?? 443,
       protocol: json['protocol'] ?? 'VLESS',
       link: json['link'] ?? '',
+      config: json['config'] ?? '',
       source: json['source'] ?? '',
       ping: json['ping'],
     );
@@ -39,6 +42,7 @@ class ServerNode {
         'port': port,
         'protocol': protocol,
         'link': link,
+        'config': config,
         'source': source,
         'ping': ping,
       };

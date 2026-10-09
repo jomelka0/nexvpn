@@ -1,0 +1,9 @@
+vless://11111111-2222-3333-4444-555555555555@de1.example.com:443?type=tcp&security=reality&pbk=abc&sni=www.microsoft.com&sid=01&fp=chrome#%F0%9F%87%A9%F0%9F%87%AA%20Germany%201
+trojan://passw0rd@nl2.example.com:8443?security=tls&sni=nl2.example.com#Netherlands
+vmess://eyJ2IjoiMiIsInBzIjoiVVMgRWFzdCIsImFkZCI6InVzMy5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjIyMjIyMjIyLTIyMjItMjIyMi0yMjIyLTIyMjIyMjIyMjIyMiIsImFpZCI6IjAiLCJuZXQiOiJ3cyIsInRscyI6InRscyJ9
+ss://YWVzLTI1Ni1nY206c2VjcmV0@ss1.example.com:8388#SS%20Tokyo
+ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpwd0BsZWdhY3kuZXhhbXBsZS5jb206OTk5OQ==#Legacy%20SS
+vless://uuid@[2001:db8::1]:443?security=none#IPv6%20Node
+hysteria2://pw@hy.example.com:443#Hy2
+tuic://a:b@t.example.com:443#Tuic
+trojan://passw0rd@nl2.example.com:8443?security=tls&sni=nl2.example.com#Netherlands

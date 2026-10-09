@@ -11,16 +11,16 @@ void main() async {
   } catch (_) {
     // ядро инициализируется повторно при подключении
   }
-  runApp(const NexVPNApp());
+  runApp(const NexApp());
 }
 
-class NexVPNApp extends StatelessWidget {
-  const NexVPNApp({super.key});
+class NexApp extends StatelessWidget {
+  const NexApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'NexVPN',
+      title: 'Nex',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
       darkTheme: ThemeData(

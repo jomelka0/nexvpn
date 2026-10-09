@@ -30,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   ServerNode? selected;
   bool pinging = false;
   bool busy = false;
+  final Set<String> pingingIds = {};
 
   late AnimationController _pulse;
 
@@ -153,11 +154,33 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Future<void> _pingAll() async {
     if (pinging || servers.isEmpty) return;
     setState(() => pinging = true);
-    await PingService.pingAll(servers, () {
-      if (mounted) setState(() {});
-    });
+    await PingService.pingAll(
+      servers,
+      onStart: (s) {
+        if (mounted) setState(() => pingingIds.add(s.id));
+      },
+      onDone: (s) {
+        if (mounted) setState(() => pingingIds.remove(s.id));
+      },
+    );
     await StorageService.saveServers(servers);
-    if (mounted) setState(() => pinging = false);
+    if (!mounted) return;
+    setState(() => pinging = false);
+    if (servers.every((s) => (s.ping ?? -1) < 0)) {
+      _snack(VpnManager.instance.lastPingError ?? 'Ни один сервер не ответил на проверку');
+    }
+  }
+
+  Future<void> _pingOne(ServerNode server) async {
+    if (pingingIds.contains(server.id)) return;
+    setState(() => pingingIds.add(server.id));
+    server.ping = await VpnManager.instance.ping(server);
+    await StorageService.saveServers(servers);
+    if (!mounted) return;
+    setState(() => pingingIds.remove(server.id));
+    if ((server.ping ?? -1) < 0) {
+      _snack(VpnManager.instance.lastPingError ?? 'Сервер не ответил на проверку');
+    }
   }
 
   Future<void> _confirmDelete(ServerNode server) async {
@@ -523,6 +546,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           child = ServerCard(
             server: server,
             isSelected: selected?.id == server.id,
+            pinging: pingingIds.contains(server.id),
+            onPingTap: () => _pingOne(server),
             onLongPress: () => _confirmDelete(server),
             onTap: () async {
               setState(() => selected = server);

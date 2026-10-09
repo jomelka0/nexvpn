@@ -34,10 +34,21 @@ class VpnManager {
     } else if (s.state == 'DISCONNECTED') {
       downHistory.clear();
       upHistory.clear();
+      _connectedId = null;
     }
     status.value = s;
   }
   bool _initialized = false;
+
+  // Адреса, по которым ядро Xray делает «реальный» запрос через сервер
+  static const _testUrls = [
+    'https://www.gstatic.com/generate_204',
+    'http://cp.cloudflare.com/generate_204',
+  ];
+
+  /// Причина последней неудачи пинга (для диагностики).
+  String? lastPingError;
+  String? _connectedId;
 
   bool get isConnected => status.value.state == 'CONNECTED';
   bool get isConnecting => status.value.state == 'CONNECTING';
@@ -78,6 +89,7 @@ class VpnManager {
         proxyOnly: false,
         notificationDisconnectButtonName: 'Отключить',
       );
+      _connectedId = server.id;
       return null;
     } catch (e) {
       return 'Ошибка подключения: $e';
@@ -85,19 +97,48 @@ class VpnManager {
   }
 
   Future<void> disconnect() async {
+    _connectedId = null;
     await _v2ray.stopV2Ray();
   }
 
-  /// Реальная задержка до сервера через ядро Xray (мс), -1 если недоступен.
+  /// Реальная задержка через ядро Xray (мс): ядро поднимает прокси с конфигом сервера
+  /// и делает запрос через него. -1 — сервер не ответил (причина в [lastPingError]).
   Future<int> ping(ServerNode server) async {
+    lastPingError = null;
     try {
       await init();
-      final parsed = FlutterV2ray.parseFromURL(server.link);
-      final d = await _v2ray
-          .getServerDelay(config: parsed.getFullConfiguration())
-          .timeout(const Duration(seconds: 10));
-      return d <= 0 ? -1 : d;
-    } catch (_) {
+
+      // Сервер, к которому мы подключены сейчас, меряем через активный туннель
+      if (isConnected && _connectedId == server.id) {
+        for (final url in _testUrls) {
+          try {
+            final d = await _v2ray
+                .getConnectedServerDelay(url: url)
+                .timeout(const Duration(seconds: 8));
+            if (d > 0 && d < 20000) return d;
+            lastPingError = 'Проверка через активный туннель вернула $d';
+          } catch (e) {
+            lastPingError = '$e';
+          }
+        }
+        return -1;
+      }
+
+      final config = FlutterV2ray.parseFromURL(server.link).getFullConfiguration();
+      for (final url in _testUrls) {
+        try {
+          final d = await _v2ray
+              .getServerDelay(config: config, url: url)
+              .timeout(const Duration(seconds: 8));
+          if (d > 0 && d < 20000) return d;
+          lastPingError = 'Проверка Xray вернула $d (адрес: $url)';
+        } catch (e) {
+          lastPingError = '$e';
+        }
+      }
+      return -1;
+    } catch (e) {
+      lastPingError = '$e';
       return -1;
     }
   }

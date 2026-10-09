@@ -7,6 +7,8 @@ class ServerCard extends StatelessWidget {
   final bool isSelected;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
+  final bool pinging;
+  final VoidCallback? onPingTap;
 
   const ServerCard({
     super.key,
@@ -14,6 +16,8 @@ class ServerCard extends StatelessWidget {
     required this.isSelected,
     required this.onTap,
     required this.onLongPress,
+    this.pinging = false,
+    this.onPingTap,
   });
 
   List<Color> _protocolColors() {
@@ -91,14 +95,29 @@ class ServerCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: pingColor.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(20),
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onPingTap,
+              child: Container(
+                constraints: const BoxConstraints(minWidth: 64),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: pingColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Center(
+                  widthFactor: 1,
+                  child: pinging
+                      ? SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: pingColor),
+                        )
+                      : Text(pingText,
+                          style: TextStyle(
+                              color: pingColor, fontWeight: FontWeight.bold, fontSize: 12)),
+                ),
               ),
-              child: Text(pingText,
-                  style: TextStyle(color: pingColor, fontWeight: FontWeight.bold, fontSize: 12)),
             ),
             const SizedBox(width: 6),
             AnimatedSwitcher(

@@ -8,7 +8,12 @@ import '../services/ping_service.dart';
 import '../services/subscription_service.dart';
 import '../services/vpn_service.dart';
 import '../utils/format.dart';
+import '../utils/page_routes.dart';
+import '../widgets/animated_icon_button.dart';
+import '../widgets/connection_stats.dart';
+import '../widgets/fade_in_up.dart';
 import '../widgets/server_card.dart';
+import '../widgets/tap_scale.dart';
 import 'settings_screen.dart';
 import 'add_subscription_sheet.dart';
 
@@ -176,133 +181,232 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('NexVPN', style: TextStyle(fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(
-            tooltip: 'Обновить все подписки',
-            icon: const Icon(Icons.refresh),
-            onPressed: _refreshAll,
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF111D31), Color(0xFF0D1117)],
+        ),
+      ),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          scrolledUnderElevation: 0,
+          title: Row(
+            children: [
+              const Icon(Icons.shield_rounded, color: Color(0xFF58A6FF)),
+              const SizedBox(width: 8),
+              ShaderMask(
+                shaderCallback: (r) => const LinearGradient(
+                  colors: [Color(0xFF58A6FF), Color(0xFFA371F7)],
+                ).createShader(r),
+                child: const Text('NexVPN',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 24, color: Colors.white)),
+              ),
+            ],
           ),
-          IconButton(
-            tooltip: 'Добавить подписку',
-            icon: const Icon(Icons.add_link),
-            onPressed: () async {
-              final msg = await showModalBottomSheet<String>(
-                context: context,
-                isScrollControlled: true,
-                builder: (_) => const AddSubscriptionSheet(),
-              );
-              _loadData();
-              if (msg != null) _snack(msg);
-            },
-          ),
-          IconButton(
-            tooltip: 'Настройки',
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+          actions: [
+            AnimatedIconButton(
+              tooltip: 'Обновить все подписки',
+              icon: Icons.refresh_rounded,
+              anim: IconAnim.spin,
+              onPressed: _refreshAll,
+            ),
+            AnimatedIconButton(
+              tooltip: 'Добавить подписку',
+              icon: Icons.add_link_rounded,
+              anim: IconAnim.bounce,
+              onPressed: () async {
+                final msg = await showModalBottomSheet<String>(
+                  context: context,
+                  isScrollControlled: true,
+                  builder: (_) => const AddSubscriptionSheet(),
+                );
+                _loadData();
+                if (msg != null) _snack(msg);
+              },
+            ),
+            AnimatedIconButton(
+              tooltip: 'Настройки',
+              icon: Icons.settings_rounded,
+              anim: IconAnim.turn,
+              onPressed: () => Navigator.push(context, fadeSlideRoute<void>(const SettingsScreen())),
+            ),
+          ],
+        ),
+        body: ValueListenableBuilder<V2RayStatus>(
+          valueListenable: VpnManager.instance.status,
+          builder: (context, st, _) {
+            final connected = st.state == 'CONNECTED';
+            final connecting = st.state == 'CONNECTING' || busy;
+            return Column(
+              children: [
+                Center(child: _connectButton(connected, connecting)),
+                _statusLabel(connected, connecting),
+                const SizedBox(height: 10),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 350),
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.topCenter,
+                  child: connected
+                      ? ConnectionStats(
+                          status: st,
+                          down: VpnManager.instance.downHistory,
+                          up: VpnManager.instance.upHistory,
+                        )
+                      : const SizedBox(width: double.infinity),
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Серверы',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                      TextButton.icon(
+                        onPressed: pinging ? null : _pingAll,
+                        icon: pinging
+                            ? const SizedBox(
+                                width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.network_ping_rounded, size: 18),
+                        label: const Text('Тест пинга'),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(child: _serverList(connected)),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _statusLabel(bool connected, bool connecting) {
+    final text = connecting ? 'Подключение…' : (connected ? 'Подключено' : 'Не подключено');
+    final color = connected ? const Color(0xFF3FB950) : const Color(0xFF8B949E);
+    return Column(
+      children: [
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          transitionBuilder: (c, a) => FadeTransition(
+            opacity: a,
+            child: SlideTransition(
+              position: Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(a),
+              child: c,
             ),
           ),
-        ],
-      ),
-      body: ValueListenableBuilder<V2RayStatus>(
-        valueListenable: VpnManager.instance.status,
-        builder: (context, st, _) {
-          final connected = st.state == 'CONNECTED';
-          final connecting = st.state == 'CONNECTING' || busy;
-          return Column(
-            children: [
-              const SizedBox(height: 20),
-              Center(child: _connectButton(connected, connecting)),
-              const SizedBox(height: 16),
-              if (connected) _statsRow(st) else const SizedBox(height: 40),
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Серверы', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    TextButton.icon(
-                      onPressed: pinging ? null : _pingAll,
-                      icon: pinging
-                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Icon(Icons.network_ping, size: 18),
-                      label: const Text('Тест пинга'),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(child: _serverList(connected)),
-            ],
-          );
-        },
+          child: Text(text,
+              key: ValueKey(text),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: color)),
+        ),
+        if (selected != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4, left: 24, right: 24),
+            child: Text(selected!.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: Color(0xFF8B949E))),
+          ),
+      ],
+    );
+  }
+
+  Widget _ring(double size, double opacity) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: const Color(0xFF3FB950).withOpacity(opacity.clamp(0.0, 1.0).toDouble()),
+          width: 2,
+        ),
       ),
     );
   }
 
   Widget _connectButton(bool connected, bool connecting) {
-    final color = connected ? Colors.green : const Color(0xFF8B949E);
-    final label = connecting
-        ? (connected ? 'ОТКЛЮЧЕНИЕ…' : 'ПОДКЛЮЧЕНИЕ…')
-        : (connected ? 'ПОДКЛЮЧЕНО' : 'ОТКЛЮЧЕНО');
-    return GestureDetector(
-      onTap: _toggle,
-      child: AnimatedBuilder(
-        animation: _pulse,
-        builder: (context, child) {
-          return Container(
-            width: 160,
-            height: 160,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: connected ? Colors.green.withOpacity(0.15) : const Color(0xFF161B22),
-              border: Border.all(
-                color: connected ? Colors.green : const Color(0xFF30363D),
-                width: connected ? 3 + (_pulse.value * 2) : 2,
-              ),
-              boxShadow: connected
-                  ? [BoxShadow(color: Colors.green.withOpacity(0.4), blurRadius: 20, spreadRadius: 5)]
-                  : [],
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                connecting
-                    ? const SizedBox(width: 48, height: 48, child: CircularProgressIndicator(strokeWidth: 3))
-                    : Icon(Icons.power_settings_new_rounded, size: 56, color: color),
-                const SizedBox(height: 8),
-                Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: color)),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
+    final List<Color> colors = connected
+        ? const [Color(0xFF238636), Color(0xFF3FB950)]
+        : connecting
+            ? const [Color(0xFF1F6FEB), Color(0xFF58A6FF)]
+            : const [Color(0xFF2A313C), Color(0xFF1B212B)];
+    final glow = connected
+        ? const Color(0xFF3FB950)
+        : (connecting ? const Color(0xFF58A6FF) : Colors.transparent);
 
-  Widget _statsRow(V2RayStatus st) {
-    Widget item(IconData icon, String text) => Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: const Color(0xFF8B949E)),
-            const SizedBox(width: 4),
-            Text(text, style: const TextStyle(fontSize: 12, color: Color(0xFF8B949E))),
-          ],
-        );
-    return SizedBox(
-      height: 40,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          item(Icons.timer_outlined, st.duration),
-          item(Icons.arrow_downward, '${formatBytes(st.downloadSpeed)}/s'),
-          item(Icons.arrow_upward, '${formatBytes(st.uploadSpeed)}/s'),
-          item(Icons.data_usage, formatBytes(st.download + st.upload)),
-        ],
+    return TapScale(
+      onTap: _toggle,
+      scaleDown: 0.92,
+      child: SizedBox(
+        width: 190,
+        height: 190,
+        child: AnimatedBuilder(
+          animation: _pulse,
+          builder: (context, _) {
+            final p = _pulse.value;
+            return Stack(
+              alignment: Alignment.center,
+              children: [
+                if (connected) ...[
+                  _ring(130 + 55 * p, 0.30 * (1 - p)),
+                  _ring(130 + 55 * (1 - p), 0.20 * p),
+                ],
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.easeOutCubic,
+                  width: 130,
+                  height: 130,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: colors,
+                    ),
+                    border: Border.all(
+                      color: (connected || connecting) ? Colors.transparent : const Color(0xFF30363D),
+                      width: 2,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: glow.withOpacity(0.45),
+                        blurRadius: connected ? 28 : 22,
+                        spreadRadius: connected ? 4 : 2,
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      transitionBuilder: (c, a) =>
+                          ScaleTransition(scale: a, child: FadeTransition(opacity: a, child: c)),
+                      child: connecting
+                          ? const SizedBox(
+                              key: ValueKey('wait'),
+                              width: 42,
+                              height: 42,
+                              child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white),
+                            )
+                          : Icon(
+                              Icons.power_settings_new_rounded,
+                              key: ValueKey(connected),
+                              size: 60,
+                              color: connected ? Colors.white : const Color(0xFF8B949E),
+                            ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -404,25 +508,30 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       itemCount: items.length,
       itemBuilder: (context, index) {
         final item = items[index];
-        if (item is Subscription) return _subHeader(item);
-        if (item is String) {
-          return Padding(
+        final delay = (index < 8 ? index : 8) * 50;
+        Widget child;
+        if (item is Subscription) {
+          child = _subHeader(item);
+        } else if (item is String) {
+          child = Padding(
             padding: const EdgeInsets.only(top: 8, bottom: 10),
             child: Text(item,
                 style: const TextStyle(color: Color(0xFF8B949E), fontWeight: FontWeight.bold)),
           );
+        } else {
+          final server = item as ServerNode;
+          child = ServerCard(
+            server: server,
+            isSelected: selected?.id == server.id,
+            onLongPress: () => _confirmDelete(server),
+            onTap: () async {
+              setState(() => selected = server);
+              await StorageService.saveSelectedId(server.id);
+              if (connected) _snack('Сервер изменён — переподключитесь');
+            },
+          );
         }
-        final server = item as ServerNode;
-        return ServerCard(
-          server: server,
-          isSelected: selected?.id == server.id,
-          onLongPress: () => _confirmDelete(server),
-          onTap: () async {
-            setState(() => selected = server);
-            await StorageService.saveSelectedId(server.id);
-            if (connected) _snack('Сервер изменён — переподключитесь');
-          },
-        );
+        return FadeInUp(delayMs: delay, child: child);
       },
     );
   }

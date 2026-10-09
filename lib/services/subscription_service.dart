@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_v2ray/flutter_v2ray.dart';
 import '../models/server_node.dart';
 import '../models/subscription.dart';
+import 'device_service.dart';
 import 'storage_service.dart';
 
 class ImportResult {
@@ -19,7 +20,9 @@ class _Fetched {
   final Map<String, int> info;
   final String? title;
   final int? intervalHours;
-  _Fetched(this.body, this.info, this.title, this.intervalHours);
+  final bool hwidLimit;
+  final bool hwidNotSupported;
+  _Fetched(this.body, this.info, this.title, this.intervalHours, this.hwidLimit, this.hwidNotSupported);
 }
 
 class SubscriptionService {
@@ -27,7 +30,7 @@ class SubscriptionService {
   static const supportedSchemes = ['vless', 'vmess', 'trojan', 'ss', 'socks'];
 
   // Некоторые панели отдают разный формат в зависимости от User-Agent
-  static const _userAgents = ['v2rayNG/1.8.5', 'Happ/1.0'];
+  static const _userAgents = ['v2rayNG/1.8.5', 'NexVPN/1.0'];
 
   /// Принимает: ссылку подписки http(s)://…, либо одну/несколько ссылок
   /// vless:// vmess:// trojan:// ss://, либо base64-текст подписки.
@@ -35,11 +38,12 @@ class SubscriptionService {
     final text = input.trim();
 
     if (text.startsWith('http://') || text.startsWith('https://')) {
-      ImportResult? last;
-      String? lastError;
+      final deviceHeaders = await DeviceService.headers();
+      String? firstError;
+
       for (final ua in _userAgents) {
         try {
-          final f = await _download(text, ua);
+          final f = await _download(text, ua, deviceHeaders);
           final res = parseContent(f.body, source: text);
           if (res.servers.isNotEmpty) {
             var hours = f.intervalHours ?? 12;
@@ -56,18 +60,31 @@ class SubscriptionService {
             );
             return ImportResult(res.servers, res.skipped, null, source: text, subscription: sub);
           }
-          last = res;
+          firstError ??= _explain(f, res);
         } catch (e) {
-          lastError = '$e';
+          var msg = 'Не удалось загрузить подписку: $e';
+          if ('$e'.contains('404')) {
+            msg += '\nСсылка неверна, либо сервис требует идентификатор устройства.';
+          }
+          firstError ??= msg;
         }
       }
-      if (last != null) {
-        return ImportResult([], last.skipped, last.error, source: text);
-      }
-      return ImportResult([], 0, 'Не удалось загрузить подписку: ${lastError ?? ''}', source: text);
+      return ImportResult([], 0, firstError ?? 'Ничего не найдено', source: text);
     }
 
     return parseContent(text);
+  }
+
+  static String _explain(_Fetched f, ImportResult res) {
+    final msg = res.error ?? 'Ничего не найдено';
+    if (f.hwidLimit) {
+      return 'Достигнут лимит устройств для этой подписки. '
+          'Удалите старое устройство в личном кабинете сервиса и повторите.\n$msg';
+    }
+    if (f.hwidNotSupported) {
+      return 'Сервис требует идентификатор устройства (HWID), но не принял его.\n$msg';
+    }
+    return msg;
   }
 
   static ImportResult parseContent(String raw, {String source = ''}) {
@@ -78,13 +95,14 @@ class SubscriptionService {
         final b64 = content.replaceAll(RegExp(r'\s'), '').replaceAll('-', '+').replaceAll('_', '/');
         content = utf8.decode(base64.decode(base64.normalize(b64)));
       } catch (_) {
-        return ImportResult([], 0,
-            'Не удалось распознать ответ сервера (ожидаются ссылки vless://, vmess://… или base64).',
-            source: source);
+        final flat = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
+        final snippet = flat.length > 100 ? '${flat.substring(0, 100)}…' : flat;
+        return ImportResult([], 0, 'Не удалось распознать ответ сервера: «$snippet»', source: source);
       }
     }
 
     final servers = <ServerNode>[];
+    final notices = <String>[];
     final seen = <String>{};
     var skipped = 0;
 
@@ -102,9 +120,13 @@ class SubscriptionService {
       try {
         final parsed = FlutterV2ray.parseFromURL(line);
 
-        // Информационные «серверы» (остаток трафика и т.п.) с адресом-заглушкой пропускаем
+        // Информационные «серверы» (сообщения панели, остаток трафика) с адресом-заглушкой
         final addr = parsed.address;
-        if (addr == '0.0.0.0' || addr == '127.0.0.1' || addr == 'localhost') continue;
+        if (addr == '0.0.0.0' || addr == '127.0.0.1' || addr == 'localhost') {
+          final remark = parsed.remark.trim();
+          if (remark.isNotEmpty && !notices.contains(remark)) notices.add(remark);
+          continue;
+        }
 
         var protocol = scheme.toUpperCase();
         if (parsed.security == 'reality') protocol += '+Reality';
@@ -123,6 +145,9 @@ class SubscriptionService {
     }
 
     if (servers.isEmpty) {
+      if (notices.isNotEmpty) {
+        return ImportResult([], skipped, 'Сервер подписки ответил: ${notices.join(' ')}', source: source);
+      }
       return ImportResult([], skipped,
           'Не найдено поддерживаемых серверов (vless, vmess, trojan, ss).', source: source);
     }
@@ -160,11 +185,12 @@ class SubscriptionService {
     return msg;
   }
 
-  static Future<_Fetched> _download(String url, String userAgent) async {
+  static Future<_Fetched> _download(String url, String userAgent, Map<String, String> extra) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
       final req = await client.getUrl(Uri.parse(url));
       req.headers.set('User-Agent', userAgent);
+      extra.forEach((k, v) => req.headers.set(k, v));
       final res = await req.close().timeout(const Duration(seconds: 20));
       if (res.statusCode != 200) throw 'HTTP ${res.statusCode}';
       final body = await res.transform(const Utf8Decoder(allowMalformed: true)).join();
@@ -173,6 +199,8 @@ class SubscriptionService {
         _parseUserInfo(_header(res, 'subscription-userinfo')),
         _decodeTitle(_header(res, 'profile-title')),
         int.tryParse(_header(res, 'profile-update-interval') ?? ''),
+        (_header(res, 'x-hwid-limit') ?? '').toLowerCase() == 'true',
+        (_header(res, 'x-hwid-not-supported') ?? '').toLowerCase() == 'true',
       );
     } finally {
       client.close();

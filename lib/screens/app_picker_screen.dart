@@ -47,7 +47,11 @@ class _AppPickerScreenState extends State<AppPickerScreen> {
         if (!didPop) Navigator.pop(context, _selected.toList());
       },
       child: Scaffold(
-        appBar: AppBar(title: Text('Приложения через VPN (${_selected.length})')),
+        appBar: AppBar(
+          surfaceTintColor: Colors.transparent,
+          title: Text('Приложения через VPN (${_selected.length})',
+              style: const TextStyle(fontWeight: FontWeight.w800)),
+        ),
         body: _loading
             ? const Center(child: CircularProgressIndicator())
             : Column(

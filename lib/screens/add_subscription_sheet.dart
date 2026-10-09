@@ -78,6 +78,7 @@ class _AddSubscriptionSheetState extends State<AddSubscriptionSheet> {
               hintText: 'https://…',
               border: const OutlineInputBorder(),
               errorText: _error,
+              errorMaxLines: 8,
             ),
           ),
           Align(

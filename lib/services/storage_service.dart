@@ -18,7 +18,17 @@ class StorageService {
 
   static List<ServerNode> getServers() {
     final list = _prefs.getStringList('servers') ?? [];
-    return list.map((item) => ServerNode.fromJson(jsonDecode(item))).toList();
+    return list
+        .map((item) => ServerNode.fromJson(jsonDecode(item)))
+        // заглушки панелей подписок (адрес 0.0.0.0) — не настоящие серверы
+        .where((s) => s.address != '0.0.0.0' && s.address != '127.0.0.1')
+        .toList();
+  }
+
+  static String? getHwid() => _prefs.getString('hwid');
+
+  static Future<void> saveHwid(String value) async {
+    await _prefs.setString('hwid', value);
   }
 
   static Future<void> saveSettings(AppSettings settings) async {

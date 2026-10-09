@@ -19,7 +19,24 @@ class VpnManager {
   ];
 
   final ValueNotifier<V2RayStatus> status = ValueNotifier(V2RayStatus());
-  late final FlutterV2ray _v2ray = FlutterV2ray(onStatusChanged: (s) => status.value = s);
+  /// История скорости за текущий сеанс (для графика), ~1 значение в секунду.
+  final List<int> downHistory = [];
+  final List<int> upHistory = [];
+
+  late final FlutterV2ray _v2ray = FlutterV2ray(onStatusChanged: _onStatus);
+
+  void _onStatus(V2RayStatus s) {
+    if (s.state == 'CONNECTED') {
+      downHistory.add(s.downloadSpeed);
+      upHistory.add(s.uploadSpeed);
+      if (downHistory.length > 40) downHistory.removeAt(0);
+      if (upHistory.length > 40) upHistory.removeAt(0);
+    } else if (s.state == 'DISCONNECTED') {
+      downHistory.clear();
+      upHistory.clear();
+    }
+    status.value = s;
+  }
   bool _initialized = false;
 
   bool get isConnected => status.value.state == 'CONNECTED';

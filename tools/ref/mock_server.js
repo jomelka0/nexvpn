@@ -14,7 +14,7 @@ const STUB_LINES = ['Включите передачу HWID', 'в настрой
   .map(t => 'vless://00000000-0000-0000-0000-000000000000@0.0.0.0:1?security=none#' + enc(t));
 const JSON_CONFIGS = [
   { remarks: '🌎 Универсальный №1', inbounds: [{ tag: 'socks', port: 10808, protocol: 'socks' }],
-    outbounds: [{ tag: 'proxy', protocol: 'vless', settings: { vnext: [{ address: 'real1.example.com', port: 443, users: [{ id: 'u1', encryption: 'none' }] }] }, streamSettings: { network: 'tcp', security: 'reality' } },
+    outbounds: [{ tag: 'proxy', protocol: 'vless', settings: { vnext: [{ address: 'real1.example.com', port: 443, users: [{ id: 'u1', encryption: 'none' }] }] }, streamSettings: { network: 'tcp', security: 'reality', realitySettings: { serverName: 'www.microsoft.com', fingerprint: 'chrome', publicKey: 'PUBKEY', shortId: '01' } } },
                 { tag: 'direct', protocol: 'freedom' }, { tag: 'block', protocol: 'blackhole' }] },
   { remarks: 'Trojan', outbounds: [{ tag: 'proxy', protocol: 'trojan', settings: { servers: [{ address: 'real2.example.com', port: 8443, password: 'p' }] } }, { protocol: 'freedom' }] },
 ];

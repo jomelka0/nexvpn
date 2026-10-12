@@ -2,7 +2,10 @@
 // Сквозная проверка: тестовая панель подписок + подставной Xray + настоящий браузер (Chromium).
 const assert = require('assert');
 const fs = require('fs'), os = require('os'), path = require('path');
-process.env.NEX_XRAY = path.join(__dirname, 'fake-xray.js');
+const FAKE = path.join(__dirname, 'fake-core.js');
+process.env.NEX_XRAY = FAKE; process.env.NEX_SINGBOX = FAKE; process.env.NEX_MIHOMO = FAKE;
+process.env.NEX_TUN2PROXY = path.join(__dirname, 'fake-tun2proxy.js'); process.env.NEX_FAKE_ADMIN = '1';
+process.env.NEX_SKIP_PRECHECK = '1';
 process.env.NEX_PING_TIMEOUT = '1200';
 
 let chromium;
@@ -109,6 +112,72 @@ const ok = name => console.log('  ok  ' + name);
     await page.waitForSelector('#stats.show', { timeout: 15000 });
     await page.click('#bDisc');
     ok('подключение с TLS Fragmentation');
+
+    // ---- несколько ядер ----
+    const api = async (p2, body) => (await (await ctx.request.post(`http://127.0.0.1:${port}${p2}`, { data: body || {}, headers: { 'x-nex-token': app.token } })).json());
+    const state = async () => (await (await ctx.request.get(`http://127.0.0.1:${port}/api/state`, { headers: { 'x-nex-token': app.token } })).json());
+    await page.click('#bBack').catch(() => {});
+
+    // Hysteria2 и TUIC: Xray их не умеет — «Авто» выбирает sing-box
+    await page.click('#subbar'); await page.waitForSelector('#sheet.show');
+    await page.fill('#inp', 'hysteria2://pw@hy.example.com:8443?sni=hy.example.com&insecure=1#%F0%9F%9A%80%20Hy2 node\ntuic://22222222-2222-2222-2222-222222222222:secret@t.example.com:443?alpn=h3#TUIC node');
+    await page.click('#bImport');
+    await page.waitForFunction(() => document.querySelectorAll('.card').length === 5);
+    await page.waitForTimeout(600);
+    assert.ok((await page.locator('.badge').allTextContents()).includes('HYSTERIA2'));
+    const hy = (await state()).servers.find(s => s.protocol === 'HYSTERIA2');
+    assert.ok((await api('/api/connect', { id: hy.id })).ok);
+    await page.waitForSelector('#stats.show', { timeout: 15000 });
+    assert.ok((await page.textContent('#stName')).includes('sing-box'), await page.textContent('#stName'));
+    await page.waitForFunction(() => !/^0 B/.test(document.querySelector('#stDown').textContent), null, { timeout: 10000 }); // статистика через Clash API
+    ok('Hysteria2: «Авто» выбрал sing-box, статистика идёт через Clash API');
+    await api('/api/disconnect');
+
+    // явный выбор Mihomo для сервера из обычной ссылки (готовые Xray-конфиги Mihomo не умеет)
+    await api('/api/import', { input: 'vless://11111111-2222-3333-4444-555555555555@m.example.com:443?type=ws&security=tls&path=%2Fw&host=m.example.com&sni=m.example.com#Mihomo node' });
+    await api('/api/settings', { core: 'mihomo' });
+    const mnode = (await state()).servers.find(s => s.name === 'Mihomo node');
+    assert.ok((await api('/api/connect', { id: mnode.id })).ok);
+    await page.reload();
+    await page.waitForFunction(() => /Mihomo/.test((document.querySelector('#stName') || {}).textContent || ''), null, { timeout: 15000 });
+    ok('явный выбор ядра: Mihomo');
+    await shot('mihomo_connected');
+    await api('/api/disconnect');
+    await api('/api/settings', { core: 'auto' });
+
+    // TUN: sing-box со встроенным TUN и tun2proxy для остальных ядер
+    await api('/api/settings', { tun: true, sysProxy: false });
+    assert.ok((await api('/api/connect', { id: hy.id })).ok);
+    assert.ok((await state()).status.proxy.tun);
+    await api('/api/disconnect');
+    const unresolved = (await state()).servers.find(s => s.protocol === 'TROJAN');
+    const refused = await api('/api/connect', { id: unresolved.id });  // адрес не резолвится → TUN не включаем
+    assert.ok(!refused.ok && /IP-адрес сервера/.test(refused.error), JSON.stringify(refused));
+    await api('/api/import', { input: 'vless://id@203.0.113.7:443?security=tls&sni=ip.example.com#IP node' });
+    const tr = (await state()).servers.find(s => s.name === 'IP node');
+    assert.ok((await api('/api/connect', { id: tr.id })).ok);
+    const t2p = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), 'fake_tun2proxy_args.json'), 'utf8'));
+    assert.ok(t2p.includes('--setup') && t2p.some(a => /^socks5:\/\/127\.0\.0\.1:\d+$/.test(a)) && t2p.includes('--bypass') && t2p.includes('203.0.113.7'), t2p.join(' '));
+    await api('/api/disconnect');
+    await api('/api/settings', { tun: false, sysProxy: true });
+    ok('режим TUN: sing-box (встроенный) и tun2proxy (Xray/Mihomo)');
+
+    // ---- скорость пинга: 40 серверов, 10 из них «мёртвые» ----
+    const many = [];
+    for (let i = 0; i < 30; i++) many.push(`vless://id${i}@fast${i}.example.com:443?security=tls&sni=fast${i}.example.com#Fast ${i}`);
+    for (let i = 0; i < 10; i++) many.push(`vless://id@dead${i}.example.com:443?security=tls&sni=dead${i}.example.com#Dead ${i}`);
+    assert.ok((await api('/api/import', { input: many.join('\n') })).ok);
+    await page.reload(); await page.waitForSelector('.card');
+    const total = await page.locator('.card').count();
+    const t0 = Date.now();
+    await page.click('#bPing');
+    await page.waitForFunction(() => [...document.querySelectorAll('.pill')].every(p => !p.querySelector('.spin') && !/---/.test(p.textContent)), null, { timeout: 60000 });
+    const secs = (Date.now() - t0) / 1000;
+    const badCount = await page.locator(".pill.bad").count();
+    assert.ok(badCount >= 10, "мёртвых серверов должно быть ≥ 10, а их " + badCount);
+    assert.ok(secs < 12, 'пинг ' + total + ' серверов занял ' + secs + ' с');
+    ok(`быстрый пинг: ${total} серверов за ${secs.toFixed(1)} с (последовательно было бы ≈ ${Math.round(total * 0.35 + badCount * 2.4)} с)`);
+    await shot('many_pinged');
 
     // защита локального API
     const bad = await ctx.request.post(`http://127.0.0.1:${port}/api/disconnect`, { data: {} });

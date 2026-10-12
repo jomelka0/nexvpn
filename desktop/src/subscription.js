@@ -4,6 +4,8 @@ const os = require('os');
 const P = require('./sub_parser');
 const log = require('./log');
 
+// протоколы, которые умеют sing-box и Mihomo (Xray их не поддерживает)
+const EXTRA = { extraSchemes: ['hysteria2', 'hy2', 'tuic'] };
 const USER_AGENTS = ['v2rayNG/1.9.19', 'Happ/2.5.1', 'v2rayN/7.0', 'Streisand/1.0', 'Nex/1.1'];
 
 const hash = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h.toString(16); };
@@ -52,7 +54,7 @@ function explainEmpty(o) {
 async function importInput(input, store) {
   const text = String(input || '').trim();
   if (/^https?:\/\//i.test(text)) return importUrl(text, store);
-  const o = P.parseSubscriptionBody(text);
+  const o = P.parseSubscriptionBody(text, EXTRA);
   log.add(`Импорт из текста: формат=${o.format}, серверов=${o.servers.length}, пропущено=${o.skipped}`);
   if (!o.servers.length) return { servers: [], skipped: o.skipped, error: explainEmpty(o), source: '' };
   return { servers: toNodes(o.servers, ''), skipped: o.skipped, error: null, source: '' };
@@ -67,7 +69,7 @@ async function importUrl(url, store) {
     let f;
     try { f = await download(url, ua, device); }
     catch (e) { log.add(`  [${ua}] ошибка: ${e.message}`); if (!firstError) firstError = e.message; continue; }
-    const o = P.parseSubscriptionBody(f.body);
+    const o = P.parseSubscriptionBody(f.body, EXTRA);
     const decoy = P.looksLikeDecoys(o.servers);
     log.add(`  [${ua}] ${f.body.length} байт, формат=${o.format}, серверов=${o.servers.length}, одинаковый адрес у всех=${decoy ? 'да' : 'нет'}, сообщений панели=${o.notices.length}, пропущено=${o.skipped}`);
     log.add('     ' + o.preview);

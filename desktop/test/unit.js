@@ -138,8 +138,8 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'nex-'));
     assert.strictEqual(await sub.refreshAll(again), 2);
   });
   await t('ссылки вставкой: поддерживаемые и пропущенные', async () => {
-    const r = await sub.importInput(M.REAL_LINES.join('\n') + '\nhysteria2://x@h:1#h', new Store(tmp()));
-    assert.strictEqual(r.servers.length, 3); assert.strictEqual(r.skipped, 1);
+    const r = await sub.importInput(M.REAL_LINES.join('\n') + '\nhysteria2://x@h.example.com:1#h\nwireguard://k@w.example.com:1#w', new Store(tmp()));
+    assert.strictEqual(r.servers.length, 4); assert.strictEqual(r.skipped, 1); // hysteria2 теперь поддерживается (sing-box/Mihomo)
   });
   srv.close();
 

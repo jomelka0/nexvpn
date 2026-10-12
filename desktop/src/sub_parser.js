@@ -55,9 +55,9 @@ function splitUri(line) {
   return { scheme, userinfo, host, port, fragment: safeDecode(fragment) };
 }
 
-function parseLine(line) {
+function parseLine(line, extra) {
   const scheme = line.split('://')[0].toLowerCase();
-  if (!SUPPORTED.includes(scheme)) return { skip: true };
+  if (!SUPPORTED.includes(scheme) && !(extra || []).includes(scheme)) return { skip: true };
   let name = '', address = '', port = 0;
 
   if (scheme === 'vmess') {
@@ -95,7 +95,7 @@ function parseLine(line) {
   if (!address) return { skip: true };
   name = name.trim();
   if (INFO_HOSTS.includes(address)) return { notice: name };
-  const protocol = scheme.toUpperCase();
+  const protocol = scheme === 'hy2' ? 'HYSTERIA2' : scheme.toUpperCase();
   return { server: { name: name || address, address, port, protocol, link: line, config: '' } };
 }
 
@@ -133,7 +133,8 @@ function fromJson(text, out, prefix) {
   return out;
 }
 
-function parseSubscriptionBody(raw) {
+function parseSubscriptionBody(raw, opts) {
+  const extra = (opts && opts.extraSchemes) || [];
   let text = String(raw || '').trim();
   const out = { format: 'empty', servers: [], skipped: 0, notices: [], preview: '' };
   if (!text) return out;
@@ -158,7 +159,7 @@ function parseSubscriptionBody(raw) {
     const line = rawLine.trim();
     if (!line || !line.includes('://') || seen.has(line)) continue;
     seen.add(line);
-    const r = parseLine(line);
+    const r = parseLine(line, extra);
     if (r.skip) out.skipped++;
     else if (r.notice !== undefined) { if (r.notice && !out.notices.includes(r.notice)) out.notices.push(r.notice); }
     else out.servers.push(r.server);

@@ -10,7 +10,7 @@ function dataDir() {
   return path.join(os.homedir(), '.config', 'nex');
 }
 
-const DEFAULT_SETTINGS = { bypassLan: true, fragment: false, sysProxy: true, socksPort: 10808, httpPort: 10809 };
+const DEFAULT_SETTINGS = { bypassLan: true, fragment: false, sysProxy: true, socksPort: 10808, httpPort: 10809, core: 'auto', tun: false };
 
 class Store {
   constructor(dir = dataDir()) {

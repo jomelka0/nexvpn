@@ -132,7 +132,7 @@ function renderStats() {
     statsBuilt = true;
     requestAnimationFrame(() => box.classList.add('show'));
   }
-  $('#stName').textContent = srv ? srv.name : '';
+  $('#stName').textContent = (srv ? srv.name : '') + (st.core ? '  ·  ' + st.core + (st.proxy && st.proxy.tun ? ' · TUN' : '') : '');
   $('#stTime').textContent = fmtTime(st.uptime || 0);
   $('#stDown').textContent = fmtBytes(st.downSpeed) + '/s';
   $('#stUp').textContent = fmtBytes(st.upSpeed) + '/s';
@@ -177,18 +177,32 @@ async function connectTo(id) {
 }
 async function disconnect() { await api('/api/disconnect', {}); await load(); }
 
+function updatePill(id) {
+  const s = S.servers.find(x => x.id === id), el = document.querySelector(`.card[data-id="${CSS.escape(id)}"] .pill`);
+  if (!s || !el) return;
+  el.className = 'pill ' + pillClass(s);
+  el.innerHTML = pillHtml(s);
+}
 async function pingOne(id) {
   if (ui.pinging.has(id)) return;
-  ui.pinging.add(id); renderList();
+  ui.pinging.add(id); updatePill(id);
   const r = await api('/api/ping', { id });
   ui.pinging.delete(id);
   const s = S.servers.find(x => x.id === id); if (s) s.ping = r.ping;
-  renderList();
-  if (r.ping < 0 && r.error) toast('Пинг не прошёл: ' + r.error, 5000);
+  updatePill(id);
+  return r;
 }
 async function pingAll() {
   const ids = visible().map(s => s.id);
-  for (const id of ids) await pingOne(id);
+  let i = 0, firstErr = null, okCount = 0;
+  const worker = async () => {
+    while (i < ids.length) {
+      const r = await pingOne(ids[i++]);
+      if (r && r.ping >= 0) okCount++; else if (r && !firstErr) firstErr = r.error;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(10, ids.length) }, worker));
+  if (ids.length && !okCount && firstErr) toast('Ни один сервер не ответил: ' + firstErr, 6000);
 }
 
 async function refresh() {
@@ -223,7 +237,13 @@ function setRow(key, icon, title, desc) {
 async function openSettings() {
   const lg = await api('/api/log');
   const st = S.settings;
+  const cs = S.cores || {};
+  const seg = (id, label) => `<button class="seg ${st.core === id ? 'on' : ''}" data-core="${id}">${label}${id !== 'auto' && !cs[id] ? ' ⚠' : ''}</button>`;
   $('#setBody').innerHTML =
+    `<div class="tt" style="margin:2px 2px 8px;font-weight:800;font-size:16px">Ядро</div>
+     <div class="segs">${seg('auto', 'Авто')}${seg('xray', 'Xray')}${seg('singbox', 'sing-box')}${seg('mihomo', 'Mihomo')}</div>
+     <div class="note">Авто: Xray, а для Hysteria2 и TUIC — sing-box или Mihomo. ⚠ — файл ядра не найден рядом с Nex.exe.</div>` +
+    setRow('tun', ICON.shield, 'Режим TUN (весь трафик системы)', 'Экспериментально. Нужны права администратора' + (S.isAdmin ? ' (сейчас есть).' : ' — сейчас их нет, запустите Nex от имени администратора.') + ' Системный прокси при этом не используется.') +
     setRow('sysProxy', ICON.shield, 'Системный прокси', 'При подключении направлять трафик Windows через Nex.') +
     setRow('bypassLan', ICON.lan, 'Bypass LAN', 'Локальные адреса (принтеры, NAS) — напрямую, без VPN.') +
     setRow('fragment', ICON.split, 'TLS Fragmentation', 'Дробить ClientHello для обхода DPI.') +
@@ -238,6 +258,8 @@ async function openSettings() {
      <button class="btn danger" id="bQuit">${ICON.exit.replace('<svg', '<svg style="width:18px;height:18px"')} Выход (отключить VPN и закрыть Nex)</button>`;
   $('#settings').classList.add('show');
   $('#setBody').onclick = async e => {
+    const sg = e.target.closest('.seg');
+    if (sg) { S.settings.core = sg.dataset.core; document.querySelectorAll('.seg').forEach(x => x.classList.toggle('on', x === sg)); await api('/api/settings', { core: sg.dataset.core }); return; }
     const row = e.target.closest('.set');
     if (row) { const k = row.dataset.key; const v = !S.settings[k]; S.settings[k] = v; row.classList.toggle('on', v); await api('/api/settings', { [k]: v }); }
   };
@@ -253,7 +275,7 @@ async function openSettings() {
 $('#list').addEventListener('click', e => {
   const card = e.target.closest('.card'); if (!card) return;
   const id = card.dataset.id, act = (e.target.closest('[data-act]') || {}).dataset;
-  if (act && act.act === 'ping') return pingOne(id);
+  if (act && act.act === 'ping') return pingOne(id).then(r => { if (r && r.ping < 0 && r.error) toast('Пинг не прошёл: ' + r.error, 5000); });
   if (act && act.act === 'power') return (connected() && S.status.serverId === id) ? disconnect() : connectTo(id);
   S.selectedId = id; api('/api/select', { id }); renderList();
 });

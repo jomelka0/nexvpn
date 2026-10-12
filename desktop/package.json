@@ -6,7 +6,7 @@
   "bin": "src/main.js",
   "scripts": {
     "start": "node src/main.js",
-    "test": "node test/unit.js && node test/e2e.js"
+    "test": "node test/unit.js && node test/unit2.js && node test/e2e.js"
   },
   "pkg": {
     "assets": ["ui/**/*"],

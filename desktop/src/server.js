@@ -6,7 +6,8 @@ const crypto = require('crypto');
 const { Store } = require('./store');
 const { Vpn } = require('./vpn');
 const sub = require('./subscription');
-const xray = require('./xray');
+const runner = require('./runner');
+const cores = require('./cores');
 const log = require('./log');
 
 const VERSION = '1.1.0';
@@ -21,7 +22,7 @@ function createApp(opts = {}) {
   const vpn = new Vpn(store);
   const token = crypto.randomBytes(12).toString('hex');
   const uiDir = path.join(__dirname, '..', 'ui');
-  let pingChain = Promise.resolve();
+  const pingSlots = new runner.Semaphore(Number(process.env.NEX_PING_CONCURRENCY) || 12);
   let listenPort = 0;
 
   const state = () => ({
@@ -32,7 +33,8 @@ function createApp(opts = {}) {
     settings: store.settings,
     status: vpn.status(),
     platform: process.platform,
-    xrayFound: !!xray.findBinary(),
+    cores: cores.available(),
+    isAdmin: runner.isAdmin(),
   });
 
   const json = (res, code, obj) => { const b = JSON.stringify(obj); res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(b); };
@@ -88,16 +90,15 @@ function createApp(opts = {}) {
     if (p === '/api/ping') {
       const node = find(body.id);
       if (!node) return json(res, 404, { error: 'нет такого сервера' });
-      const task = pingChain.then(async () => {
+      const result = await pingSlots.run(async () => {
         const st = {};
-        const ms = await xray.ping(node, store.dir, st);
+        const ms = await runner.ping(node, { dir: store.dir, core: store.settings.core, state: st });
         node.ping = ms;
-        store.save();
         if (ms < 0) log.add(`Пинг ${node.name} (${node.address}:${node.port}): ${st.lastError || 'нет ответа'}`);
         return { ping: ms, error: ms < 0 ? st.lastError || 'нет ответа' : null };
       });
-      pingChain = task.catch(() => {});
-      return json(res, 200, await task);
+      store.save();
+      return json(res, 200, result);
     }
     if (p === '/api/connect') {
       const node = find(body.id);
@@ -109,7 +110,8 @@ function createApp(opts = {}) {
     if (p === '/api/disconnect') { await vpn.disconnect(); return json(res, 200, { ok: true }); }
     if (p === '/api/settings') {
       const s = store.settings;
-      for (const k of ['bypassLan', 'fragment', 'sysProxy']) if (typeof body[k] === 'boolean') s[k] = body[k];
+      for (const k of ['bypassLan', 'fragment', 'sysProxy', 'tun']) if (typeof body[k] === 'boolean') s[k] = body[k];
+      if (['auto', 'xray', 'singbox', 'mihomo'].includes(body.core)) s.core = body.core;
       for (const k of ['socksPort', 'httpPort']) { const v = Number(body[k]); if (Number.isInteger(v) && v >= 1024 && v <= 65535) s[k] = v; }
       store.save();
       return json(res, 200, { ok: true, settings: s });

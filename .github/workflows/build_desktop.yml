@@ -9,33 +9,47 @@ on:
       - '.github/workflows/build_desktop.yml'
 
 jobs:
+  # Проверка логики и конфигураций настоящими ядрами (не блокирует сборку exe)
   validate:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - name: Unit tests
-        run: node desktop/test/unit.js
-      - name: Download Xray
         run: |
+          node desktop/test/unit.js
+          NEX_PING_TIMEOUT=800 node desktop/test/unit2.js
+      - name: Download cores (Linux)
+        continue-on-error: true
+        run: |
+          mkdir -p cores dl && cd cores
           curl -sL -o xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
-          mkdir xray && unzip -q xray.zip -d xray
-          ./xray/xray version
-      - name: Validate generated configs with real Xray
+          unzip -q -o xray.zip && ./xray version
+          gh release download --repo SagerNet/sing-box --pattern 'sing-box-*-linux-amd64.tar.gz' --dir ../dl
+          tar xzf ../dl/sing-box-*-linux-amd64.tar.gz -C ../dl
+          cp "$(find ../dl -name sing-box -type f | head -n1)" ./sing-box && chmod +x sing-box && ./sing-box version
+          gh release download --repo MetaCubeX/mihomo --pattern 'mihomo-linux-amd64-v*.gz' --dir ../dl
+          f=$(ls ../dl/mihomo-linux-amd64-v*.gz | grep -E 'amd64-v[0-9]+\.[0-9]+\.[0-9]+\.gz$' | head -n1)
+          gunzip -c "$f" > mihomo && chmod +x mihomo && ./mihomo -v
+      - name: Validate generated configs with the real cores
         run: |
           node desktop/test/gen-configs.js /tmp/cfgs
-          cd xray
           fail=0
-          for f in /tmp/cfgs/*.json; do
-            echo "== $f"
-            ./xray run -test -c "$f" || fail=1
-          done
+          cd cores
+          for f in /tmp/cfgs/xray/*.json;    do echo "== xray    $f"; ./xray run -test -c "$f" || fail=1; done
+          for f in /tmp/cfgs/singbox/*.json; do echo "== sing-box $f"; ./sing-box check -c "$f" || fail=1; done
+          mkdir -p /tmp/mh
+          for f in /tmp/cfgs/mihomo/*.yaml;  do echo "== mihomo   $f"; ./mihomo -t -d /tmp/mh -f "$f" || fail=1; done
           exit $fail
 
   build-windows:
     runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -48,12 +62,45 @@ jobs:
           mkdir dist
           cd desktop
           pkg . --targets node20-win-x64 --output ../dist/Nex.exe
-      - name: Add Xray core
+      - name: Add Xray
         shell: pwsh
         run: |
           Invoke-WebRequest https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip -OutFile xray.zip
           Expand-Archive xray.zip -DestinationPath xray
           Copy-Item xray/xray.exe, xray/geoip.dat, xray/geosite.dat dist/
+      - name: Add sing-box
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          gh release download --repo SagerNet/sing-box --pattern 'sing-box-*-windows-amd64.zip' --dir dl_sb
+          $z = Get-ChildItem dl_sb -Filter 'sing-box-*-windows-amd64.zip' | Select-Object -First 1
+          Expand-Archive $z.FullName -DestinationPath sb
+          Copy-Item (Get-ChildItem sb -Recurse -Filter sing-box.exe | Select-Object -First 1).FullName dist/
+      - name: Add Mihomo
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          gh release download --repo MetaCubeX/mihomo --pattern 'mihomo-windows-amd64-v*.zip' --dir dl_mh
+          $z = Get-ChildItem dl_mh | Where-Object { $_.Name -match '^mihomo-windows-amd64-v\d+\.\d+\.\d+\.zip$' } | Select-Object -First 1
+          Expand-Archive $z.FullName -DestinationPath mh
+          Copy-Item (Get-ChildItem mh -Filter *.exe | Select-Object -First 1).FullName dist/mihomo.exe
+      - name: Add tun2proxy and wintun
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          gh release download --repo tun2proxy/tun2proxy --pattern 'tun2proxy-x86_64-pc-windows-msvc.zip' --dir dl_t2p
+          Expand-Archive dl_t2p/tun2proxy-x86_64-pc-windows-msvc.zip -DestinationPath t2p
+          Copy-Item (Get-ChildItem t2p -Recurse -Filter tun2proxy-bin.exe | Select-Object -First 1).FullName dist/
+          $w = Get-ChildItem t2p -Recurse -Filter wintun.dll | Select-Object -First 1
+          if ($w) { Copy-Item $w.FullName dist/ } else {
+            Invoke-WebRequest https://www.wintun.net/builds/wintun-0.14.1.zip -OutFile wintun.zip
+            Expand-Archive wintun.zip -DestinationPath wt
+            Copy-Item wt/wintun/bin/amd64/wintun.dll dist/
+          }
+      - name: Zip
+        shell: pwsh
+        run: |
+          Get-ChildItem dist
           Compress-Archive -Path dist/* -DestinationPath Nex-Windows.zip
       - uses: actions/upload-artifact@v4
         with:
